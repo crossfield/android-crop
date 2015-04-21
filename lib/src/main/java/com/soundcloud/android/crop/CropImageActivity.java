@@ -16,6 +16,7 @@
 
 package com.soundcloud.android.crop;
 
+import android.app.ProgressDialog;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -25,8 +26,10 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.net.Uri;
 import android.opengl.GLES10;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.provider.MediaStore;
 import android.view.View;
 import android.view.Window;
@@ -71,12 +74,16 @@ public class CropImageActivity extends MonitoredActivity {
         setContentView(R.layout.crop__activity_crop);
         initViews();
 
-        setupFromIntent();
-        if (rotateBitmap == null) {
-            finish();
-            return;
-        }
-        startCrop();
+        backgroundSetupFromIntent(new SetupFromIntentCallback() {
+            @Override
+            public void onSetupFinished() {
+                if (rotateBitmap == null) {
+                    finish();
+                    return;
+                }
+                startCrop();
+            }
+        });
     }
 
     private void initViews() {
@@ -156,6 +163,38 @@ public class CropImageActivity extends MonitoredActivity {
             sampleSize = sampleSize << 1;
         }
         return sampleSize;
+    }
+
+    private void backgroundSetupFromIntent(final SetupFromIntentCallback callback) {
+
+        final HandlerThread bgThread = new HandlerThread("setup_background");
+        bgThread.start();
+        Handler bgHandler = new Handler(bgThread.getLooper());
+
+        final ProgressDialog progressDialog = ProgressDialog.show(this, null,
+                getString(R.string.crop__wait), false);
+
+        progressDialog.show();
+        bgHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                setupFromIntent();
+
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        progressDialog.dismiss();
+                        callback.onSetupFinished();
+                    }
+                });
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+                    bgThread.quitSafely();
+                } else {
+                    bgThread.quit();
+                }
+            }
+        });
     }
 
     private int getMaxImageSize() {
@@ -422,4 +461,8 @@ public class CropImageActivity extends MonitoredActivity {
         setResult(Crop.RESULT_ERROR, new Intent().putExtra(Crop.Extra.ERROR, throwable));
     }
 
+    private interface SetupFromIntentCallback {
+
+        public void onSetupFinished();
+    }
 }
